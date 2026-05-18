@@ -5,6 +5,7 @@ import osmnx as ox
 import numpy as np
 import geopandas as gpd
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 import uvicorn
@@ -29,6 +30,30 @@ school_centroids = schools_gdf.geometry.centroid
 base_school_nodes = ox.distance.nearest_nodes(G, X=school_centroids.x, Y=school_centroids.y)
 print(f" [Engine] Snapped {len(base_school_nodes)} base schools to the graph.")
 
+print(" [Engine] Loading existing healthcare (hospitals) data from OSM...")
+try:
+    hospitals_gdf = ox.features_from_place("Bengaluru, India", tags={"amenity": "hospital"})
+    if hospitals_gdf.crs is None or hospitals_gdf.crs != "EPSG:4326":
+        hospitals_gdf = hospitals_gdf.to_crs(epsg=4326)
+    hospital_centroids = hospitals_gdf.geometry.centroid
+    base_hospital_nodes = ox.distance.nearest_nodes(G, X=hospital_centroids.x, Y=hospital_centroids.y)
+    print(f" [Engine] Snapped {len(base_hospital_nodes)} base hospitals to the graph.")
+except Exception as e:
+    print(f" [Engine] WARNING: Failed to load healthcare features from OSM: {e}. Falling back to subset of schools.")
+    base_hospital_nodes = base_school_nodes[:max(1, len(base_school_nodes) // 2)]
+
+print(" [Engine] Loading existing fire stations data from OSM...")
+try:
+    fire_gdf = ox.features_from_place("Bengaluru, India", tags={"amenity": "fire_station"})
+    if fire_gdf.crs is None or fire_gdf.crs != "EPSG:4326":
+        fire_gdf = fire_gdf.to_crs(epsg=4326)
+    fire_centroids = fire_gdf.geometry.centroid
+    base_fire_station_nodes = ox.distance.nearest_nodes(G, X=fire_centroids.x, Y=fire_centroids.y)
+    print(f" [Engine] Snapped {len(base_fire_station_nodes)} base fire stations to the graph.")
+except Exception as e:
+    print(f" [Engine] WARNING: Failed to load fire station features from OSM: {e}. Falling back to subset of schools.")
+    base_fire_station_nodes = base_school_nodes[:max(1, len(base_school_nodes) // 4)]
+
 print(" [Engine] Loading informal settlements (student demographics)...")
 informal_pts = gpd.read_file(INFORMAL_PATH)
 if informal_pts.crs is None or informal_pts.crs != "EPSG:4326":
@@ -40,23 +65,30 @@ print(f" [Engine] Snapped {len(student_nodes)} student demographic nodes to the 
 # ---------------------------------------------------------
 # 2. Reusable Dijkstra Engine Function
 # ---------------------------------------------------------
-def simulate_new_schools(G, base_school_nodes, student_nodes, new_coords=None):
+def simulate_new_schools(G, base_school_nodes, student_nodes, new_coords=None, poi_type="schools"):
     """
     Simulates compliance if new schools are built at 'new_coords'.
     new_coords: list of dicts [{'lat': 12.9, 'lng': 77.5}, ...]
     """
     start_cpu = time.time()
     
-    # 1. Combine existing schools with new proposals
-    all_school_nodes = set(base_school_nodes)
+    # 1. Select the correct base node set
+    if poi_type == "healthcare":
+        base_nodes = base_hospital_nodes
+    elif poi_type == "fire":
+        base_nodes = base_fire_station_nodes
+    else:
+        base_nodes = base_school_nodes
+
+    all_nodes = set(base_nodes)
     if new_coords:
         new_x = [coord['lng'] for coord in new_coords]
         new_y = [coord['lat'] for coord in new_coords]
         new_nodes = ox.distance.nearest_nodes(G, X=new_x, Y=new_y)
-        all_school_nodes.update(new_nodes)
+        all_nodes.update(new_nodes)
 
     # 2. CPU Execution (NetworkX)
-    distance_map = nx.multi_source_dijkstra_path_length(G, all_school_nodes, weight='length')
+    distance_map = nx.multi_source_dijkstra_path_length(G, all_nodes, weight='length')
     cpu_time = time.time() - start_cpu
 
     # 3. MOCK GPU Execution (For hackathon UI demo purposes before ROCm integration)
@@ -71,9 +103,19 @@ def simulate_new_schools(G, base_school_nodes, student_nodes, new_coords=None):
     compliant_count = sum(1 for d in clean_distances if d <= 1000)
     compliance_pct = (compliant_count / len(clean_distances)) * 100 if clean_distances else 0.0
 
+    def gini(distances):
+        n = len(distances)
+        if n == 0: return 0.0
+        distances = sorted(distances)
+        numerator = sum((2*i - n - 1) * d for i, d in enumerate(distances, 1))
+        return round(numerator / (n * sum(distances)), 3) if sum(distances) > 0 else 0.0
+
+    gini_score = gini(clean_distances)
+
     return {
         "average_distance_km": round(avg_dist, 2),
         "compliance_percentage": round(compliance_pct, 2),
+        "gini_score": gini_score,
         "metrics": {
             "cpu_time_sec": round(cpu_time, 3),
             "gpu_time_sec": round(gpu_time, 3),
@@ -81,10 +123,27 @@ def simulate_new_schools(G, base_school_nodes, student_nodes, new_coords=None):
         }
     }
 
+# Pre-calculate baseline Ginis once at startup
+print(" [Engine] Pre-calculating baseline Gini coefficients...")
+BASELINE_GINIS = {
+    "schools": simulate_new_schools(G, base_school_nodes, student_nodes, None, "schools")["gini_score"],
+    "healthcare": simulate_new_schools(G, base_school_nodes, student_nodes, None, "healthcare")["gini_score"],
+    "fire": simulate_new_schools(G, base_school_nodes, student_nodes, None, "fire")["gini_score"]
+}
+print(f" [Engine] Baseline Gini coefficients cached: {BASELINE_GINIS}")
+
 # ---------------------------------------------------------
 # 3. FastAPI Scaffolding
 # ---------------------------------------------------------
 app = FastAPI(title="EduGrid Spatial Engine")
+
+# Allow the React dev server (any origin) to call this API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ProposedSchool(BaseModel):
     lat: float
@@ -92,6 +151,7 @@ class ProposedSchool(BaseModel):
 
 class SimulationRequest(BaseModel):
     new_schools: List[ProposedSchool]
+    poi_type: str = "schools"
 
 @app.post("/simulate")
 def run_simulation(request: SimulationRequest):
@@ -103,8 +163,11 @@ def run_simulation(request: SimulationRequest):
         G, 
         base_school_nodes, 
         student_nodes, 
-        coords
+        coords,
+        poi_type=request.poi_type
     )
+    # Include the pre-calculated baseline Gini in the response
+    results["baseline_gini"] = BASELINE_GINIS.get(request.poi_type, 0.0)
     return results
 
 # ---------------------------------------------------------

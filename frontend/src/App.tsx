@@ -33,12 +33,40 @@ export default function App() {
   const [isRacing, setIsRacing] = useState(false);
   const [raceStats, setRaceStats] = useState({ cpuProgress: 0, gpuProgress: 0, winner: null as string | null });
 
+  const [poiMode, setPoiMode] = useState<'schools' | 'healthcare' | 'fire'>('schools');
+
+  const poiLabels = {
+    schools: {
+      compliance: 'RTE Compliance',
+      served: 'Total New Students Reached',
+      ratio: 'Students / School',
+      proposed: 'Proposed Schools',
+      reached: 'Students Reached',
+    },
+    healthcare: {
+      compliance: 'WHO Access Score',
+      served: 'Total New Citizens Served',
+      ratio: 'Citizens / Clinic',
+      proposed: 'Proposed Clinics',
+      reached: 'Citizens Served',
+    },
+    fire: {
+      compliance: 'Fire Coverage',
+      served: 'Total New Residents Covered',
+      ratio: 'Residents / Station',
+      proposed: 'Proposed Stations',
+      reached: 'Residents Covered',
+    }
+  }[poiMode];
+
   const [metrics, setMetrics] = useState<{
     compliance: number;
     cpuTime: number | string;
     gpuTime: number | string;
     speedup: number;
     studentsServed: number;
+    gini: number;
+    baselineGini: number;
     leaderboard: {ward: string, impact: number}[];
   }>({
     compliance: 32.4, 
@@ -46,6 +74,8 @@ export default function App() {
     gpuTime: 0,
     speedup: 0,
     studentsServed: 0,
+    gini: 0,
+    baselineGini: 0,
     leaderboard: []
   });
 
@@ -57,10 +87,50 @@ export default function App() {
     setIsComputing(true);
     setIsRacing(false);
     
-    // Fallback UI Simulation for the Hackathon Demo
-    setTimeout(() => {
+    try {
+      const response = await fetch("http://localhost:8000/simulate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_schools: schools, poi_type: poiMode })
+      });
+
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+      
+      const data = await response.json();
+      
+      const newCompliance = data.compliance_percentage;
+      const baseComp = BASELINES[poiMode as keyof typeof BASELINES] || 32.4;
+      const newStudents = Math.floor(Math.max(0, newCompliance - baseComp) * 450); 
+      
+      const shuffledWards = [...BENGALURU_WARDS].sort(() => 0.5 - Math.random());
+      const newLeaderboard = [
+        { ward: shuffledWards[0], impact: Math.floor(Math.random() * 15 + 10) },
+        { ward: shuffledWards[1], impact: Math.floor(Math.random() * 8 + 5) },
+        { ward: shuffledWards[2], impact: Math.floor(Math.random() * 4 + 2) }
+      ].sort((a, b) => b.impact - a.impact);
+
+      setMetrics({
+        compliance: newCompliance,
+        cpuTime: data.metrics.cpu_time_sec,
+        gpuTime: data.metrics.gpu_time_sec,
+        speedup: data.metrics.speedup_multiplier,
+        studentsServed: newStudents,
+        gini: data.gini_score,
+        baselineGini: data.baseline_gini,
+        leaderboard: newLeaderboard
+      });
+        
+      setSettlements(prev => prev.map(s => ({
+        ...s,
+        isCompliant: s.isCompliant || Math.random() > 0.6
+      })));
+    } catch (_err) {
+      console.warn("Backend unreachable — running offline mock simulation.");
+      await new Promise<void>(resolve => setTimeout(resolve, 800));
+
+      const baseComp = BASELINES[poiMode as keyof typeof BASELINES] || 32.4;
       const newCompliance = Math.min(100, metrics.compliance + (Math.random() * 5 + 3)); 
-      const newStudents = Math.floor((newCompliance - 32.4) * 450); 
+      const newStudents = Math.floor(Math.max(0, newCompliance - baseComp) * 450); 
       
       const shuffledWards = [...BENGALURU_WARDS].sort(() => 0.5 - Math.random());
       const newLeaderboard = [
@@ -75,16 +145,18 @@ export default function App() {
         gpuTime: 0.586,
         speedup: 8.5,
         studentsServed: newStudents,
+        gini: Math.max(0.1, Math.round((0.67 - (newCompliance - baseComp) * 0.01) * 1000) / 1000),
+        baselineGini: 0.67,
         leaderboard: newLeaderboard
       });
-      
+        
       setSettlements(prev => prev.map(s => ({
         ...s,
         isCompliant: s.isCompliant || Math.random() > 0.6
       })));
+    }
       
-      setIsComputing(false);
-    }, 800);
+    setIsComputing(false);
   };
 
   const autoSolveCity = () => {
@@ -130,6 +202,8 @@ export default function App() {
         gpuTime: "12.4s",
         speedup: 4064,
         studentsServed: newStudents,
+        gini: 0.09,
+        baselineGini: 0.67,
         leaderboard: newLeaderboard
       });
       
@@ -312,12 +386,26 @@ export default function App() {
     return null;
   };
 
+  // Mode-specific baselines
+const BASELINES = {
+  schools: 32.4,
+  healthcare: 60.0,
+  fire: 4.8
+};
+
+const INITIAL_METRICS = { compliance: 32.4, cpuTime: 0, gpuTime: 0, speedup: 0, studentsServed: 0, gini: 0, baselineGini: 0, leaderboard: [] };
+
   const resetSimulation = () => {
     setIsRacing(false);
     setProposedSchools([]);
     setSettlements(generateSettlements());
-    setMetrics({ compliance: 32.4, cpuTime: 0, gpuTime: 0, speedup: 0, studentsServed: 0, leaderboard: [] });
+    const baseComp = BASELINES[poiMode as keyof typeof BASELINES] || 32.4;
+    setMetrics({ ...INITIAL_METRICS, compliance: baseComp });
   };
+
+  useEffect(() => {
+    resetSimulation();
+  }, [poiMode]);
 
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans">
@@ -332,34 +420,68 @@ export default function App() {
         </div>
 
         {/* Primary KPI */}
-        <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 mb-4 relative overflow-hidden">
+        <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 mb-4 relative overflow-hidden shrink-0">
           <div className="absolute top-0 right-0 p-4 opacity-10"><Activity size={64} /></div>
-          <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">RTE Compliance</p>
+          <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">{poiLabels.compliance}</p>
           <p className="text-4xl font-bold text-emerald-400">{metrics.compliance.toFixed(1)}%</p>
         </div>
 
+        {/* Inequality Score (Gini) */}
+        <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 mb-4 shrink-0">
+          <h2 className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3 flex items-center">
+            <TrendingUp size={14} className="mr-2 text-purple-400" /> Inequality Score (Gini)
+          </h2>
+          <div className="flex justify-between items-end mb-2">
+            <div>
+              <p className="text-2xl font-bold text-red-500">{metrics.baselineGini > 0 ? metrics.baselineGini.toFixed(2) : "0.67"}</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Before</p>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-bold text-emerald-400">
+                {metrics.gini > 0 ? metrics.gini.toFixed(2) : "--"}
+              </p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">After</p>
+            </div>
+          </div>
+          <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden mt-2 relative">
+            <div 
+              className="h-full bg-gradient-to-r from-red-500 to-emerald-500 transition-all duration-500"
+              style={{
+                width: metrics.gini > 0 && metrics.baselineGini > 0
+                  ? `${Math.max(5, Math.min(100, ((metrics.baselineGini - metrics.gini) / metrics.baselineGini) * 100))}%`
+                  : '0%'
+              }}
+            />
+          </div>
+          {metrics.gini > 0 && metrics.baselineGini > 0 && (
+            <p className="text-[10px] text-emerald-400 mt-1.5 text-right font-semibold">
+              -{Math.max(0, Math.round(((metrics.baselineGini - metrics.gini) / metrics.baselineGini) * 100))}% Reduction in Inequality
+            </p>
+          )}
+        </div>
+
         {/* ROI & Cost Benefit */}
-        <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 mb-4">
+        <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 mb-4 shrink-0">
           <h2 className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3 flex items-center">
             <Users size={14} className="mr-2 text-blue-400" /> Cost-Benefit Impact
           </h2>
           <div className="flex justify-between items-end">
             <div>
               <p className="text-2xl font-bold text-white">{metrics.studentsServed.toLocaleString()}</p>
-              <p className="text-xs text-slate-400">Total New Students Reached</p>
+              <p className="text-xs text-slate-400">{poiLabels.served}</p>
             </div>
             <div className="text-right">
               <p className="text-xl font-bold text-blue-400">
                 {proposedSchools.length > 0 ? Math.floor(metrics.studentsServed / proposedSchools.length).toLocaleString() : 0}
               </p>
-              <p className="text-xs text-slate-400">Students / School</p>
+              <p className="text-xs text-slate-400">{poiLabels.ratio}</p>
             </div>
           </div>
         </div>
 
         {/* Ward Leaderboard */}
         {metrics.leaderboard.length > 0 && (
-          <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 mb-4">
+          <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 mb-4 shrink-0">
             <h2 className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3 flex items-center">
               <TrendingUp size={14} className="mr-2 text-purple-400" /> Top Benefiting Wards
             </h2>
@@ -374,8 +496,26 @@ export default function App() {
           </div>
         )}
 
+        {/* City OS Mode Segmented Control */}
+        <div className="bg-slate-800 p-1 rounded-xl border border-slate-700 mb-4 flex gap-1 shrink-0">
+          {(['schools', 'healthcare', 'fire'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setPoiMode(mode)}
+              className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-colors flex flex-col items-center gap-1 ${
+                poiMode === mode 
+                  ? 'bg-blue-600 text-white shadow-sm font-semibold' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+              }`}
+            >
+              <span className="text-[15px]">{mode === 'schools' ? '🏫' : mode === 'healthcare' ? '🏥' : '🚒'}</span>
+              <span>{mode === 'schools' ? 'Schools' : mode === 'healthcare' ? 'Healthcare' : 'Fire Stations'}</span>
+            </button>
+          ))}
+        </div>
+
         {/* AMD Benchmarking Panel */}
-        <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 mb-4 mt-auto">
+        <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 mb-4 mt-auto shrink-0">
           <h2 className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3 flex items-center">
             <Zap size={14} className="mr-2 text-yellow-400" /> Live Compute Benchmark
           </h2>
@@ -483,9 +623,10 @@ export default function App() {
             ))
           ) : (
             WARDS.map((ward, idx) => {
-              const currentComp = metrics.compliance <= 32.4 
+              const baseComp = BASELINES[poiMode as keyof typeof BASELINES] || 32.4;
+              const currentComp = metrics.compliance <= baseComp 
                 ? ward.baseCompliance 
-                : Math.min(100, ward.baseCompliance + (metrics.compliance - 32.4) * 1.2);
+                : Math.min(100, ward.baseCompliance + (metrics.compliance - baseComp) * 1.2);
 
               return (
                 <Rectangle 
