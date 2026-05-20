@@ -3,7 +3,7 @@ import { Activity, Cpu, Zap, RotateCcw, TrendingUp, Users, FileDown } from 'luci
 import { MapContainer, TileLayer, CircleMarker, useMapEvents } from 'react-leaflet';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import { WARDS } from './wardData';
+import { WARDS, WARD_LAND_COSTS } from './wardData';
 import 'leaflet/dist/leaflet.css';
 
 const BASE_SCHOOLS = [
@@ -33,6 +33,7 @@ export default function App() {
   const [raceStats, setRaceStats] = useState({ cpuProgress: 0, gpuProgress: 0, winner: null as string | null });
 
   const [poiMode, setPoiMode] = useState<'schools' | 'healthcare' | 'fire'>('schools');
+  const [budgetCr, setBudgetCr] = useState(50);
 
   const poiLabels = {
     schools: {
@@ -66,6 +67,8 @@ export default function App() {
     studentsServed: number;
     gini: number;
     baselineGini: number;
+    totalSpent: number;
+    costPerStudent: string;
     leaderboard: {ward: string, impact: number}[];
   }>({
     compliance: 32.4, 
@@ -75,6 +78,8 @@ export default function App() {
     studentsServed: 0,
     gini: 0,
     baselineGini: 0,
+    totalSpent: 0,
+    costPerStudent: "0",
     leaderboard: []
   });
 
@@ -90,7 +95,7 @@ export default function App() {
       const response = await fetch("http://localhost:8000/simulate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ new_schools: schools, poi_type: poiMode })
+        body: JSON.stringify({ new_schools: schools, poi_type: poiMode, budget_cr: budgetCr })
       });
 
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
@@ -189,17 +194,43 @@ export default function App() {
         [-0.04, 0.00], [+0.04, 0.00], [0.00, -0.04], [0.00, +0.04],
         [-0.07, +0.03], [+0.07, -0.03], [-0.03, +0.07], [+0.03, -0.07]
       ];
-      const newSchools = outerRingOffsets.map(([dlat, dlng]) => ({
-        lat: 12.9716 + dlat + (Math.random() - 0.5) * 0.01,
-        lng: 77.5946 + dlng + (Math.random() - 0.5) * 0.01
-      }));
-      setProposedSchools(newSchools);
+      const candidates = outerRingOffsets.map(([dlat, dlng]) => {
+        const lat = 12.9716 + dlat + (Math.random() - 0.5) * 0.01;
+        const lng = 77.5946 + dlng + (Math.random() - 0.5) * 0.01;
+        
+        let nearestWard = "default";
+        let minDist = Infinity;
+        for (const w of WARDS) {
+          const dist = Math.pow(lat - w.center[0], 2) + Math.pow(lng - w.center[1], 2);
+          if (dist < minDist) {
+            minDist = dist;
+            nearestWard = w.name;
+          }
+        }
+        
+        const cost = WARD_LAND_COSTS[nearestWard] || WARD_LAND_COSTS["default"];
+        const proxyStudents = Math.floor(Math.random() * 400 + 100);
+        return { lat, lng, cost, ratio: proxyStudents / cost };
+      });
+      
+      candidates.sort((a, b) => b.ratio - a.ratio);
+      
+      const affordableSchools = [];
+      let spent = 0;
+      for (const c of candidates) {
+        if (spent + c.cost <= budgetCr) {
+          affordableSchools.push({ lat: c.lat, lng: c.lng });
+          spent += c.cost;
+        }
+      }
+      
+      setProposedSchools(affordableSchools);
       
       try {
         const response = await fetch("http://localhost:8000/simulate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ new_schools: newSchools, poi_type: poiMode })
+          body: JSON.stringify({ new_schools: affordableSchools, poi_type: poiMode, budget_cr: budgetCr })
         });
 
         if (!response.ok) throw new Error("Server error");
@@ -208,6 +239,7 @@ export default function App() {
         const newCompliance = data.compliance_percentage;
         const baseComp = BASELINES[poiMode as keyof typeof BASELINES] || 32.4;
         const newStudents = Math.floor(Math.max(0, newCompliance - baseComp) * 450);
+        const costPerStudentStr = newStudents > 0 ? ((spent * 10000000) / newStudents).toLocaleString('en-IN', {maximumFractionDigits:0}) : "0";
         
         const shuffledWards = [...BENGALURU_WARDS].sort(() => 0.5 - Math.random());
         const newLeaderboard = [
@@ -224,12 +256,15 @@ export default function App() {
           studentsServed: newStudents,
           gini: data.gini_score,
           baselineGini: data.baseline_gini,
+          totalSpent: spent,
+          costPerStudent: costPerStudentStr,
           leaderboard: newLeaderboard
         });
       } catch (_err) {
         // Fallback offline mock values if backend is unreachable
         const newCompliance = 99.4;
         const newStudents = Math.floor((newCompliance - 32.4) * 450);
+        const costPerStudentStr = newStudents > 0 ? ((spent * 10000000) / newStudents).toLocaleString('en-IN', {maximumFractionDigits:0}) : "0";
         const shuffledWards = [...BENGALURU_WARDS].sort(() => 0.5 - Math.random());
         
         setMetrics({
@@ -240,6 +275,8 @@ export default function App() {
           studentsServed: newStudents,
           gini: 0.09,
           baselineGini: 0.67,
+          totalSpent: spent,
+          costPerStudent: costPerStudentStr,
           leaderboard: [
             { ward: shuffledWards[0], impact: 22 },
             { ward: shuffledWards[1], impact: 18 },
@@ -325,7 +362,7 @@ export default function App() {
       // KPI Summary Box
       pdf.setFillColor(255, 255, 255);
       pdf.setDrawColor(226, 232, 240);
-      pdf.roundedRect(15, 35, 180, 40, 3, 3, 'FD');
+      pdf.roundedRect(15, 35, 180, 65, 3, 3, 'FD');
       
       pdf.setTextColor(71, 85, 105); // slate-600
       pdf.setFontSize(10);
@@ -347,24 +384,39 @@ export default function App() {
       pdf.setTextColor(99, 102, 241); // indigo-600
       pdf.setFontSize(22);
       pdf.text(proposedSchools.length.toString(), 145, 60);
+
+      // New Budget Rows
+      pdf.setTextColor(71, 85, 105);
+      pdf.setFontSize(10);
+      pdf.text("BUDGET UTILISED", 25, 78);
+      pdf.setTextColor(239, 68, 68); // red-500
+      pdf.setFontSize(18);
+      pdf.text(`Rs. ${metrics.totalSpent.toFixed(1)}Cr of Rs. ${budgetCr}Cr`, 25, 90);
+
+      pdf.setTextColor(71, 85, 105);
+      pdf.setFontSize(10);
+      pdf.text("COST PER STUDENT", 115, 78);
+      pdf.setTextColor(14, 165, 233); // sky-600
+      pdf.setFontSize(18);
+      pdf.text(`Rs. ${metrics.costPerStudent}`, 115, 90);
       
       // Ward Leaderboard Table
       pdf.setTextColor(15, 23, 42);
       pdf.setFontSize(12);
       pdf.setFont("helvetica", "bold");
-      pdf.text("Top Benefiting Wards", 15, 90);
+      pdf.text("Top Benefiting Wards", 15, 115);
       
       // Table Header
       pdf.setFillColor(226, 232, 240);
-      pdf.rect(15, 95, 180, 8, 'F');
+      pdf.rect(15, 120, 180, 8, 'F');
       pdf.setTextColor(30, 41, 59);
       pdf.setFontSize(9);
-      pdf.text("Rank", 20, 100);
-      pdf.text("Ward Name", 40, 100);
-      pdf.text("Coverage Increase", 140, 100);
+      pdf.text("Rank", 20, 125);
+      pdf.text("Ward Name", 40, 125);
+      pdf.text("Coverage Increase", 140, 125);
       
       // Table Rows
-      let yPos = 108;
+      let yPos = 133;
       pdf.setFont("helvetica", "normal");
       if (metrics.leaderboard && metrics.leaderboard.length > 0) {
         metrics.leaderboard.forEach((item, idx) => {
@@ -544,7 +596,7 @@ const INITIAL_METRICS = { compliance: 32.4, cpuTime: 0, gpuTime: 0, speedup: 0, 
           <h2 className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3 flex items-center">
             <Users size={14} className="mr-2 text-blue-400" /> Cost-Benefit Impact
           </h2>
-          <div className="flex justify-between items-end">
+          <div className="flex justify-between items-end mb-3">
             <div>
               <p className="text-2xl font-bold text-white">{metrics.studentsServed.toLocaleString()}</p>
               <p className="text-xs text-slate-400">{poiLabels.served}</p>
@@ -555,6 +607,14 @@ const INITIAL_METRICS = { compliance: 32.4, cpuTime: 0, gpuTime: 0, speedup: 0, 
               </p>
               <p className="text-xs text-slate-400">{poiLabels.ratio}</p>
             </div>
+          </div>
+          <div className="border-t border-slate-700 pt-3 space-y-1">
+            <p className="text-sm text-slate-400">
+              ₹{metrics.totalSpent.toFixed(1)}Cr <span className="text-xs">of ₹{budgetCr}Cr utilised</span>
+            </p>
+            <p className="text-sm font-semibold text-blue-400">
+              ₹{metrics.costPerStudent} <span className="text-xs font-normal">per {poiMode === 'schools' ? 'student' : poiMode === 'healthcare' ? 'citizen' : 'resident'} reached</span>
+            </p>
           </div>
         </div>
 
@@ -649,6 +709,24 @@ const INITIAL_METRICS = { compliance: 32.4, cpuTime: 0, gpuTime: 0, speedup: 0, 
               )}
             </div>
           )}
+        </div>
+
+        {/* Budget Control */}
+        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 mb-4 shrink-0" data-html2canvas-ignore>
+          <div className="flex justify-between items-center mb-2">
+            <label className="text-xs uppercase tracking-wider font-semibold text-slate-400">
+              Budget Cap: ₹{budgetCr} Crore
+            </label>
+          </div>
+          <input 
+            type="range" 
+            min={10} 
+            max={150} 
+            step={5} 
+            value={budgetCr} 
+            onChange={e => setBudgetCr(Number(e.target.value))}
+            className="w-full accent-emerald-500"
+          />
         </div>
 
         {/* Actions */}

@@ -10,6 +10,13 @@ export const WARDS = [
   { name: "Yelahanka",     center: [13.1005, 77.5940] as [number,number], bounds: [[13.086,77.580],[13.116,77.608]] as [[number,number],[number,number]], baseCompliance: 10 },
 ];
 
+export const WARD_LAND_COSTS: Record<string, number> = {
+  "Whitefield": 8.2, "Indiranagar": 7.5, "Koramangala": 9.1,
+  "Malleshwaram": 6.8, "BTM Layout": 4.2, "Jayanagar": 5.5,
+  "Shivajinagar": 6.0, "Hebbal": 3.8, "Yelahanka": 2.1,
+  "default": 3.5
+};
+
 /** Returns a hex color on a red→yellow→green gradient for 0–100 compliance */
 export function complianceColor(pct: number): string {
   const clamped = Math.max(0, Math.min(100, pct));
