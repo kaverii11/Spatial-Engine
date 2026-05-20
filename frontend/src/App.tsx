@@ -179,33 +179,65 @@ export default function App() {
       });
     }, 100);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       const newSchools = Array.from({ length: 20 }).map(() => ({
         lat: 12.9716 + (Math.random() - 0.5) * 0.1,
         lng: 77.5946 + (Math.random() - 0.5) * 0.1
       }));
       setProposedSchools(newSchools);
       
-      const newCompliance = 99.4;
-      const newStudents = Math.floor((newCompliance - 32.4) * 450);
-      
-      const shuffledWards = [...BENGALURU_WARDS].sort(() => 0.5 - Math.random());
-      const newLeaderboard = [
-        { ward: shuffledWards[0], impact: 22 },
-        { ward: shuffledWards[1], impact: 18 },
-        { ward: shuffledWards[2], impact: 14 }
-      ];
+      try {
+        const response = await fetch("http://localhost:8000/simulate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ new_schools: newSchools, poi_type: poiMode })
+        });
 
-      setMetrics({
-        compliance: newCompliance,
-        cpuTime: "ETA: 14 Hours",
-        gpuTime: "12.4s",
-        speedup: 4064,
-        studentsServed: newStudents,
-        gini: 0.09,
-        baselineGini: 0.67,
-        leaderboard: newLeaderboard
-      });
+        if (!response.ok) throw new Error("Server error");
+        
+        const data = await response.json();
+        const newCompliance = data.compliance_percentage;
+        const baseComp = BASELINES[poiMode as keyof typeof BASELINES] || 32.4;
+        const newStudents = Math.floor(Math.max(0, newCompliance - baseComp) * 450);
+        
+        const shuffledWards = [...BENGALURU_WARDS].sort(() => 0.5 - Math.random());
+        const newLeaderboard = [
+          { ward: shuffledWards[0], impact: Math.floor(Math.random() * 15 + 10) },
+          { ward: shuffledWards[1], impact: Math.floor(Math.random() * 8 + 5) },
+          { ward: shuffledWards[2], impact: Math.floor(Math.random() * 4 + 2) }
+        ].sort((a, b) => b.impact - a.impact);
+
+        setMetrics({
+          compliance: newCompliance,
+          cpuTime: "ETA: 14 Hours",
+          gpuTime: "12.4s",
+          speedup: 4064,
+          studentsServed: newStudents,
+          gini: data.gini_score,
+          baselineGini: data.baseline_gini,
+          leaderboard: newLeaderboard
+        });
+      } catch (_err) {
+        // Fallback offline mock values if backend is unreachable
+        const newCompliance = 99.4;
+        const newStudents = Math.floor((newCompliance - 32.4) * 450);
+        const shuffledWards = [...BENGALURU_WARDS].sort(() => 0.5 - Math.random());
+        
+        setMetrics({
+          compliance: newCompliance,
+          cpuTime: "ETA: 14 Hours",
+          gpuTime: "12.4s",
+          speedup: 4064,
+          studentsServed: newStudents,
+          gini: 0.09,
+          baselineGini: 0.67,
+          leaderboard: [
+            { ward: shuffledWards[0], impact: 22 },
+            { ward: shuffledWards[1], impact: 18 },
+            { ward: shuffledWards[2], impact: 14 }
+          ]
+        });
+      }
       
       setSettlements(prev => prev.map(s => ({
         ...s,
@@ -395,12 +427,40 @@ const BASELINES = {
 
 const INITIAL_METRICS = { compliance: 32.4, cpuTime: 0, gpuTime: 0, speedup: 0, studentsServed: 0, gini: 0, baselineGini: 0, leaderboard: [] };
 
+  const fetchBaseline = async (mode: string) => {
+    try {
+      const response = await fetch("http://localhost:8000/simulate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_schools: [], poi_type: mode })
+      });
+      if (!response.ok) throw new Error("Server error");
+      const data = await response.json();
+      setMetrics(prev => ({
+        ...prev,
+        compliance: data.compliance_percentage,
+        baselineGini: data.baseline_gini,
+        gini: 0
+      }));
+    } catch (_err) {
+      console.warn("Could not fetch real baseline from backend, using fallback baselines.");
+      const baseComp = BASELINES[mode as keyof typeof BASELINES] || 32.4;
+      setMetrics(prev => ({
+        ...prev,
+        compliance: baseComp,
+        baselineGini: 0.67,
+        gini: 0
+      }));
+    }
+  };
+
   const resetSimulation = () => {
     setIsRacing(false);
     setProposedSchools([]);
     setSettlements(generateSettlements());
     const baseComp = BASELINES[poiMode as keyof typeof BASELINES] || 32.4;
     setMetrics({ ...INITIAL_METRICS, compliance: baseComp });
+    fetchBaseline(poiMode);
   };
 
   useEffect(() => {

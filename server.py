@@ -26,7 +26,7 @@ print(" [Engine] Loading existing schools data...")
 schools_gdf = gpd.read_file(SCHOOLS_PATH)
 if schools_gdf.crs is None or schools_gdf.crs != "EPSG:4326":
     schools_gdf = schools_gdf.to_crs(epsg=4326)
-school_centroids = schools_gdf.geometry.centroid
+school_centroids = schools_gdf.to_crs(epsg=32643).geometry.centroid.to_crs(epsg=4326)
 base_school_nodes = ox.distance.nearest_nodes(G, X=school_centroids.x, Y=school_centroids.y)
 print(f" [Engine] Snapped {len(base_school_nodes)} base schools to the graph.")
 
