@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Activity, Cpu, Zap, RotateCcw, TrendingUp, Users, FileDown } from 'lucide-react';
-import { MapContainer, TileLayer, CircleMarker, useMapEvents, Rectangle } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, useMapEvents } from 'react-leaflet';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import { WARDS, complianceColor } from './wardData';
+import { WARDS } from './wardData';
 import 'leaflet/dist/leaflet.css';
 
 const BASE_SCHOOLS = [
@@ -27,7 +27,6 @@ export default function App() {
   const [proposedSchools, setProposedSchools] = useState<{lat: number, lng: number}[]>([]);
   const [settlements, setSettlements] = useState<{lat: number, lng: number, isCompliant: boolean}[]>([]);
   const [isComputing, setIsComputing] = useState(false);
-  const [mapView, setMapView] = useState<'dots' | 'choropleth'>('dots');
   
   // Race visualizer state
   const [isRacing, setIsRacing] = useState(false);
@@ -180,9 +179,19 @@ export default function App() {
     }, 100);
 
     setTimeout(async () => {
-      const newSchools = Array.from({ length: 20 }).map(() => ({
-        lat: 12.9716 + (Math.random() - 0.5) * 0.1,
-        lng: 77.5946 + (Math.random() - 0.5) * 0.1
+      // Grid-based placement targeting outer rings of Bengaluru where coverage gaps are largest.
+      // Random placement worsens Gini by adding points near already-served dense areas.
+      const outerRingOffsets = [
+        [-0.09, -0.09], [-0.09, 0.00], [-0.09, +0.09],
+        [+0.09, -0.09], [+0.09, 0.00], [+0.09, +0.09],
+        [0.00, -0.09], [0.00, +0.09],
+        [-0.06, -0.06], [-0.06, +0.06], [+0.06, -0.06], [+0.06, +0.06],
+        [-0.04, 0.00], [+0.04, 0.00], [0.00, -0.04], [0.00, +0.04],
+        [-0.07, +0.03], [+0.07, -0.03], [-0.03, +0.07], [+0.03, -0.07]
+      ];
+      const newSchools = outerRingOffsets.map(([dlat, dlng]) => ({
+        lat: 12.9716 + dlat + (Math.random() - 0.5) * 0.01,
+        lng: 77.5946 + dlng + (Math.random() - 0.5) * 0.01
       }));
       setProposedSchools(newSchools);
       
@@ -491,33 +500,43 @@ const INITIAL_METRICS = { compliance: 32.4, cpuTime: 0, gpuTime: 0, speedup: 0, 
           <h2 className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3 flex items-center">
             <TrendingUp size={14} className="mr-2 text-purple-400" /> Inequality Score (Gini)
           </h2>
-          <div className="flex justify-between items-end mb-2">
-            <div>
-              <p className="text-2xl font-bold text-red-500">{metrics.baselineGini > 0 ? metrics.baselineGini.toFixed(2) : "0.67"}</p>
-              <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Before</p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-emerald-400">
-                {metrics.gini > 0 ? metrics.gini.toFixed(2) : "--"}
-              </p>
-              <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">After</p>
-            </div>
-          </div>
-          <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden mt-2 relative">
-            <div 
-              className="h-full bg-gradient-to-r from-red-500 to-emerald-500 transition-all duration-500"
-              style={{
-                width: metrics.gini > 0 && metrics.baselineGini > 0
-                  ? `${Math.max(5, Math.min(100, ((metrics.baselineGini - metrics.gini) / metrics.baselineGini) * 100))}%`
-                  : '0%'
-              }}
-            />
-          </div>
-          {metrics.gini > 0 && metrics.baselineGini > 0 && (
-            <p className="text-[10px] text-emerald-400 mt-1.5 text-right font-semibold">
-              -{Math.max(0, Math.round(((metrics.baselineGini - metrics.gini) / metrics.baselineGini) * 100))}% Reduction in Inequality
-            </p>
-          )}
+          {(() => {
+            const hasResult = metrics.gini > 0 && metrics.baselineGini > 0;
+            const delta = hasResult ? metrics.baselineGini - metrics.gini : 0;
+            const pct = hasResult ? Math.round((delta / metrics.baselineGini) * 100) : 0;
+            const improved = delta >= 0;
+            // Bar width: if improved, grow from left (green); if worsened, show danger fill
+            const barWidth = hasResult ? Math.min(100, Math.abs(pct)) : 0;
+            return (
+              <>
+                <div className="flex justify-between items-end mb-2">
+                  <div>
+                    <p className="text-2xl font-bold text-red-500">{metrics.baselineGini > 0 ? metrics.baselineGini.toFixed(3) : "--"}</p>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Before</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-2xl font-bold ${hasResult ? (improved ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
+                      {hasResult ? metrics.gini.toFixed(3) : "--"}
+                    </p>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">After</p>
+                  </div>
+                </div>
+                <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden mt-2">
+                  <div
+                    className={`h-full transition-all duration-500 ${improved ? 'bg-gradient-to-r from-yellow-500 to-emerald-500' : 'bg-red-500'}`}
+                    style={{ width: hasResult ? `${Math.max(3, barWidth)}%` : '0%' }}
+                  />
+                </div>
+                {hasResult && (
+                  <p className={`text-[10px] mt-1.5 text-right font-semibold ${improved ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {improved
+                      ? `-${pct}% Reduction in Inequality`
+                      : `+${Math.abs(pct)}% Increase in Inequality (suboptimal placement)`}
+                  </p>
+                )}
+              </>
+            );
+          })()}
         </div>
 
         {/* ROI & Cost Benefit */}
@@ -650,22 +669,6 @@ const INITIAL_METRICS = { compliance: 32.4, cpuTime: 0, gpuTime: 0, speedup: 0, 
 
       {/* MAP CANVAS */}
       <div className="flex-1 relative z-0">
-        {/* Map View Toggle */}
-        <div className="absolute top-4 left-4 z-[1000] bg-slate-900/90 backdrop-blur border border-slate-700 rounded-lg p-1 flex shadow-lg" data-html2canvas-ignore>
-          <button 
-            onClick={() => setMapView('dots')} 
-            className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${mapView === 'dots' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-          >
-            Settlements
-          </button>
-          <button 
-            onClick={() => setMapView('choropleth')} 
-            className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${mapView === 'choropleth' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-          >
-            Ward Choropleth
-          </button>
-        </div>
-
         {isComputing && (
           <div className="absolute top-4 right-4 z-[1000] bg-slate-900 text-white px-4 py-2 rounded-lg shadow-lg flex items-center animate-pulse border border-emerald-500/30">
             <Activity size={16} className="mr-2 text-emerald-400" /> AMD ROCm Graph Engine Routing...
@@ -676,32 +679,10 @@ const INITIAL_METRICS = { compliance: 32.4, cpuTime: 0, gpuTime: 0, speedup: 0, 
           <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
           <MapClickHandler />
 
-          {/* Draw Settlements or Ward Heatmap */}
-          {mapView === 'dots' ? (
-            settlements.map((settlement, idx) => (
-               <CircleMarker key={`set-${idx}`} center={[settlement.lat, settlement.lng]} radius={3} pathOptions={{ color: settlement.isCompliant ? '#10b981' : '#ef4444', fillColor: settlement.isCompliant ? '#10b981' : '#ef4444', fillOpacity: 0.8, weight: 0 }} />
-            ))
-          ) : (
-            WARDS.map((ward, idx) => {
-              const baseComp = BASELINES[poiMode as keyof typeof BASELINES] || 32.4;
-              const currentComp = metrics.compliance <= baseComp 
-                ? ward.baseCompliance 
-                : Math.min(100, ward.baseCompliance + (metrics.compliance - baseComp) * 1.2);
-
-              return (
-                <Rectangle 
-                  key={`ward-${idx}`} 
-                  bounds={ward.bounds} 
-                  pathOptions={{ 
-                    color: '#ffffff', 
-                    weight: 1,
-                    fillColor: complianceColor(currentComp),
-                    fillOpacity: 0.5 
-                  }} 
-                />
-              );
-            })
-          )}
+          {/* Draw Settlements */}
+          {settlements.map((settlement, idx) => (
+             <CircleMarker key={`set-${idx}`} center={[settlement.lat, settlement.lng]} radius={3} pathOptions={{ color: settlement.isCompliant ? '#10b981' : '#ef4444', fillColor: settlement.isCompliant ? '#10b981' : '#ef4444', fillOpacity: 0.8, weight: 0 }} />
+          ))}
 
           {/* Draw Existing Schools */}
           {BASE_SCHOOLS.map((school, idx) => (
