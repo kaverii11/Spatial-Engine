@@ -113,6 +113,21 @@ export default function App() {
         { ward: shuffledWards[2], impact: Math.floor(Math.random() * 4 + 2) }
       ].sort((a, b) => b.impact - a.impact);
 
+      let spent = 0;
+      for (const s of schools) {
+        let nearestWard = "default";
+        let minDist = Infinity;
+        for (const w of WARDS) {
+          const dist = Math.pow(s.lat - w.center[0], 2) + Math.pow(s.lng - w.center[1], 2);
+          if (dist < minDist) {
+            minDist = dist;
+            nearestWard = w.name;
+          }
+        }
+        spent += WARD_LAND_COSTS[nearestWard] || WARD_LAND_COSTS["default"];
+      }
+      const costPerStudentStr = newStudents > 0 ? ((spent * 10000000) / newStudents).toLocaleString('en-IN', {maximumFractionDigits:0}) : "0";
+
       setMetrics({
         compliance: newCompliance,
         cpuTime: data.metrics.cpu_time_sec,
@@ -121,6 +136,8 @@ export default function App() {
         studentsServed: newStudents,
         gini: data.gini_score,
         baselineGini: data.baseline_gini,
+        totalSpent: spent,
+        costPerStudent: costPerStudentStr,
         leaderboard: newLeaderboard
       });
         
@@ -143,6 +160,21 @@ export default function App() {
         { ward: shuffledWards[2], impact: Math.floor(Math.random() * 4 + 2) }
       ].sort((a, b) => b.impact - a.impact);
 
+      let spent = 0;
+      for (const s of schools) {
+        let nearestWard = "default";
+        let minDist = Infinity;
+        for (const w of WARDS) {
+          const dist = Math.pow(s.lat - w.center[0], 2) + Math.pow(s.lng - w.center[1], 2);
+          if (dist < minDist) {
+            minDist = dist;
+            nearestWard = w.name;
+          }
+        }
+        spent += WARD_LAND_COSTS[nearestWard] || WARD_LAND_COSTS["default"];
+      }
+      const costPerStudentStr = newStudents > 0 ? ((spent * 10000000) / newStudents).toLocaleString('en-IN', {maximumFractionDigits:0}) : "0";
+
       setMetrics({
         compliance: newCompliance,
         cpuTime: 4.982,
@@ -151,6 +183,8 @@ export default function App() {
         studentsServed: newStudents,
         gini: Math.max(0.1, Math.round((0.67 - (newCompliance - baseComp) * 0.01) * 1000) / 1000),
         baselineGini: 0.67,
+        totalSpent: spent,
+        costPerStudent: costPerStudentStr,
         leaderboard: newLeaderboard
       });
         
@@ -486,7 +520,7 @@ const BASELINES = {
   fire: 4.8
 };
 
-const INITIAL_METRICS = { compliance: 32.4, cpuTime: 0, gpuTime: 0, speedup: 0, studentsServed: 0, gini: 0, baselineGini: 0, leaderboard: [] };
+const INITIAL_METRICS = { compliance: 32.4, cpuTime: 0, gpuTime: 0, speedup: 0, studentsServed: 0, gini: 0, baselineGini: 0, totalSpent: 0, costPerStudent: "0", leaderboard: [] };
 
   const fetchBaseline = async (mode: string) => {
     try {
