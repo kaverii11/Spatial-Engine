@@ -1,6 +1,6 @@
 # 🛰️ EduGrid City OS Spatial Engine
 
-An advanced spatial analytics engine and dashboard focused on tackling **Spatial Inequality & Infrastructure Deserts** by mapping, analyzing, and optimizing resource accessibility in dense informal urban environments. 
+An advanced spatial analytics engine and dashboard focused on mapping, analyzing, and optimizing resource accessibility in dense informal urban environments. 
 
 Built around modern spatial engineering heuristics, EduGrid evaluates whether critical infrastructure (schools, clinics, aid points, dark stores) snaps dynamically to high-density demographic nodes and optimizes placements to resolve spatial disparities.
 
@@ -16,6 +16,36 @@ EduGrid supports real-time, interactive switching across 5 major global metropol
 * **Varanasi 🇮🇳** (Base compliance: 19.8%, Gini: 0.81) - Dense, historic old-city lane penalties.
 * **Nairobi 🌍** (Base compliance: 15.3%, Gini: 0.88) - Kibera slum accessibility gap modeling.
 * *Features smooth map transition animations powered by custom Leaflet map controllers and real-time generation of demographic settlement nodes centered on the active city.*
+
+### 🔍 Global Search & Dynamic Heuristic Estimation (Search Any City)
+Users can search and dynamically map **any city in the world** using the geocoding input in the sidebar. This queries the public **OpenStreetMap Nominatim Geocoding API** at runtime to fetch the exact latitude, longitude, and metadata. 
+
+To ensure the simulation remains realistic outside the 5 static baseline cities, the engine runs a **Data-Driven Heuristic Estimation Model** to calculate custom baselines for all 6 POI modes based on the city's geographical context:
+
+#### 1. Country-Level HDI Classification
+The engine extracts the geocoded `country_code` and performs a lookup to categorize the region into one of three Human Development Index (HDI) tiers:
+* **High HDI (🟢)** (US, Western Europe, Japan, S. Korea, Australia, Singapore, etc.): Standard primary infrastructure is highly developed, leading to elevated starting compliance and lower inequality (lower Gini).
+* **Mid HDI (🟡)** (China, Brazil, South Africa, Turkey, Mexico, Indonesia, Colombia, etc.): Moderate baseline coverage with noticeable equity gaps in outlying zones.
+* **Low HDI (🔴)** (India, Nigeria, Kenya, Ethiopia, etc.): High densities of informal growth with wider infrastructure deserts.
+
+#### 2. Nominatim Importance Scaling
+OpenStreetMap's log-scaled `importance` value (0.0 to 1.0) is integrated to scale the scores. High importance corresponds to highly populated and mapped urban centers, which scales compliance upwards and Gini downwards (accounting for urban aggregation efficiency):
+$$\text{Scale Factor} = (\text{OSM Importance} - 0.3) \times 25$$
+
+#### 3. Mode-Specific Access Offsets
+Starting compliance and Gini coefficients are dynamically offset per POI mode to mirror real-world policy distribution:
+* **Healthcare Access** is offset higher (+5% to +10%) representing universal health service grids.
+* **Schools & Logistics** map closely to the baseline average.
+* **NGO Reach & Epidemic Gaps** are offset lower (-7% to -14%) to account for the severe difficulty of managing last-mile crises in informal spaces.
+
+#### Summary of Heuristic Baselines:
+| Development Tier (HDI) | Baseline Compliance Range | Gini Index Range | Real-World Behaviors |
+| :--- | :--- | :--- | :--- |
+| **High HDI (🟢)** | 55% - 92% | 0.220 - 0.450 | High base accessibility. Planning focused on marginal edge groups. |
+| **Mid HDI (🟡)** | 28% - 68% | 0.380 - 0.720 | Growing network coverage with localized access gaps. |
+| **Low HDI (🔴)** | 8% - 40% | 0.600 - 0.940 | Severe infrastructural deserts. High inequality (Gini) in slum boundaries. |
+
+---
 
 ### 💼 B2B SaaS & Government Use-Case Expansion
 The engine features a dynamic `POI_CONFIG` dictionary to drive copywriting, metrics, and tooltips across **6 distinct focus modes**:
@@ -36,7 +66,7 @@ An advanced settings card provides real-time controls for:
 The completely rewritten Auto-Solve engine maps optimal placements based on local constraints:
 * **Targeted Intervention**: Places facilities strategically near the lowest-compliance wards first (e.g. Yelahanka, Hebbal, Whitefield) before expanding to mid-compliance areas.
 * **Coordinate-Offset Math**: Dynamically offsets placement vectors to match whichever city is currently active.
-* **collapsible Solver Progress**: Migrated the heavy benchmarking card into the Auto-Solve button. A premium progress panel expands during the 2-second compute, showcasing standard CPU solver execution vs. ultra-fast **AMD ROCm GPU** speedups (4,064x faster).
+* **Collapsible Solver Progress**: Migrated the heavy benchmarking card into the Auto-Solve button. A premium progress panel expands during the 2-second compute, showcasing standard CPU solver execution vs. ultra-fast **AMD ROCm GPU** speedups (4,064x faster).
 
 ### 🏷️ Sticky Leaflet Hover Tooltips
 All map elements feature rich, interactive `<Tooltip>` bindings:
