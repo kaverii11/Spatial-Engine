@@ -223,12 +223,18 @@ export default function App() {
   const targetRef = useRef<HTMLDivElement>(null);
   
   // Controlled States
-  const [selectedCity, setSelectedCity] = useState<keyof typeof CITIES>('bengaluru');
+  const [citiesList, setCitiesList] = useState<Record<string, typeof CITIES['bengaluru']>>(CITIES);
+  const [selectedCity, setSelectedCity] = useState<string>('bengaluru');
   const [poiMode, setPoiMode] = useState<keyof typeof POI_CONFIG>('schools');
   const [maxFacilities, setMaxFacilities] = useState(10);
   const [studentsPerFacility, setStudentsPerFacility] = useState(500);
   const [budgetCr, setBudgetCr] = useState(50);
   
+  // Custom City Search States
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchError, setSearchError] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+
   // Simulation and Placements States
   const [proposedSchools, setProposedSchools] = useState<{lat: number, lng: number, ward?: string}[]>([]);
   const [settlements, setSettlements] = useState<{lat: number, lng: number, isCompliant: boolean}[]>([]);
@@ -238,7 +244,7 @@ export default function App() {
   const [isRacing, setIsRacing] = useState(false);
   const [raceStats, setRaceStats] = useState({ cpuProgress: 0, gpuProgress: 0, winner: null as string | null });
 
-  const activeCity = CITIES[selectedCity];
+  const activeCity = citiesList[selectedCity] || CITIES.bengaluru;
   const activeModeConfig = POI_CONFIG[poiMode];
 
   // Dynamic Base Facilities centered dynamically on the current city
@@ -278,6 +284,58 @@ export default function App() {
       }
     }
     return nearestWard;
+  };
+
+  // Dynamically query Nominatim OSM API and add the city as a dynamic option
+  const handleSearchCity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setIsSearching(true);
+    setSearchError('');
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`);
+      if (!response.ok) throw new Error('Search request failed');
+      const data = await response.json();
+      if (!data || data.length === 0) {
+        setSearchError('City not found');
+        return;
+      }
+      const first = data[0];
+      const name = first.display_name.split(',')[0];
+      const key = name.toLowerCase().replace(/[^a-z0-9]/g, '') || `custom_${Date.now()}`;
+      
+      const newCity = {
+        label: `${name} 🌐`,
+        center: [parseFloat(first.lat), parseFloat(first.lon)] as [number, number],
+        zoom: 12,
+        population: 'Unknown',
+        problem: `Custom searched region mapping in CityOS`,
+        baseCompliance: 40.0,
+        baseGini: 0.50,
+        baselines: {
+          schools: { compliance: 40.0, gini: 0.50 },
+          healthcare: { compliance: 40.0, gini: 0.50 },
+          fire: { compliance: 40.0, gini: 0.50 },
+          ngo: { compliance: 40.0, gini: 0.50 },
+          epidemic: { compliance: 40.0, gini: 0.50 },
+          warehouse: { compliance: 40.0, gini: 0.50 }
+        }
+      };
+
+      const updatedList = {
+        ...citiesList,
+        [key]: newCity
+      };
+      setCitiesList(updatedList);
+      setSelectedCity(key);
+      setSearchQuery('');
+      resetSimulation(key, updatedList);
+    } catch (err) {
+      console.error(err);
+      setSearchError('Search service error');
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   // Pre-load settlements on mount
@@ -494,7 +552,7 @@ export default function App() {
       pdf.setTextColor(56, 189, 248);
       pdf.setFontSize(28);
       pdf.setFont('helvetica', 'bold');
-      pdf.text('EDUGRID', 20, 55);
+      pdf.text('CityOS', 20, 55);
 
       pdf.setTextColor(255, 255, 255);
       pdf.setFontSize(16);
@@ -701,10 +759,12 @@ export default function App() {
   };
 
   // Triggers full state reset dynamically matching selected city and focus mode
-  const resetSimulation = (cityKey: keyof typeof CITIES = selectedCity) => {
+  const resetSimulation = (cityKey: string = selectedCity, customList?: Record<string, typeof CITIES['bengaluru']>) => {
     setIsRacing(false);
     setProposedSchools([]);
-    const cityObj = CITIES[cityKey];
+    const currentList = customList || citiesList;
+    const cityObj = currentList[cityKey];
+    if (!cityObj) return;
     setSettlements(generateSettlements(cityObj.center));
     
     const baseComp = cityObj.baselines[poiMode]?.compliance || 32.4;
@@ -743,16 +803,42 @@ export default function App() {
           <select
             value={selectedCity}
             onChange={(e) => {
-              const newCity = e.target.value as keyof typeof CITIES;
+              const newCity = e.target.value;
               setSelectedCity(newCity);
               resetSimulation(newCity);
             }}
             className="w-full bg-slate-700 border border-slate-600 text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 mb-2 cursor-pointer"
           >
-            {Object.entries(CITIES).map(([key, c]) => (
+            {Object.entries(citiesList).map(([key, c]) => (
               <option key={key} value={key}>{c.label}</option>
             ))}
           </select>
+
+          {/* Custom City Search Input Form */}
+          <form onSubmit={handleSearchCity} className="mt-2 pt-2 border-t border-slate-700/50 flex flex-col gap-1.5" data-html2canvas-ignore>
+            <label className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">
+              Search & Add Custom City
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="e.g. Paris, Tokyo, London..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 bg-slate-700 border border-slate-600 rounded px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              />
+              <button
+                type="submit"
+                disabled={isSearching}
+                className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-xs font-bold px-3 py-1 rounded transition-colors cursor-pointer"
+              >
+                {isSearching ? '...' : 'Search'}
+              </button>
+            </div>
+            {searchError && (
+              <p className="text-[10px] text-red-400 font-semibold">{searchError}</p>
+            )}
+          </form>
           
           {proposedSchools.length === 0 && (
             <div className="text-xs text-slate-400 italic border-t border-slate-700/50 pt-2 leading-relaxed">
