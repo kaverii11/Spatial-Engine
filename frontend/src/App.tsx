@@ -293,46 +293,105 @@ export default function App() {
     setIsSearching(true);
     setSearchError('');
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`);
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1&addressdetails=1`
+      );
       if (!response.ok) throw new Error('Search request failed');
       const data = await response.json();
       if (!data || data.length === 0) {
-        setSearchError('City not found');
+        setSearchError('City not found — try a more specific name.');
         return;
       }
       const first = data[0];
-      const name = first.display_name.split(',')[0];
-      const key = name.toLowerCase().replace(/[^a-z0-9]/g, '') || `custom_${Date.now()}`;
-      
+      const name = first.display_name.split(',')[0].trim();
+      const countryCode = (first.address?.country_code || '').toUpperCase();
+      const key = name.toLowerCase().replace(/[^a-z0-9]/g, '_') + `_${Date.now()}`;
+      // Nominatim's importance is 0–1 (log-scaled); larger/more mapped cities ≈ higher value
+      const importance: number = typeof first.importance === 'number' ? first.importance : 0.4;
+
+      // ── Country-level HDI → infrastructure development buckets ──
+      // HIGH_HDI: Western Europe, US, Canada, Australia, Japan, S.Korea, Singapore, NZ
+      // MID_HDI: China, Brazil, Mexico, SE Asia, Eastern Europe, Middle East
+      // LOW_HDI: Sub-saharan Africa, South Asia (excl. richer cities), Central Asia
+      const HIGH_HDI = new Set([
+        'US','GB','DE','FR','IT','ES','NL','BE','SE','NO','DK','FI','AT','CH','AU','NZ',
+        'CA','JP','KR','SG','IE','PT','LU','IS','NZ','HK','CZ','PL','HU','SK','EE','LV','LT','SI','HR','MT','CY','AE','QA','BH','KW','SA'
+      ]);
+      const MID_HDI = new Set([
+        'CN','BR','MX','AR','CL','UY','ZA','TH','MY','ID','PH','VN','CO','PE','EC','TN',
+        'MA','EG','JO','LB','TR','IR','IQ','RU','UA','KZ','AZ','GE','AM','RS','BA','MK','AL','MD'
+      ]);
+
+      let devTier: 'high' | 'mid' | 'low';
+      if (HIGH_HDI.has(countryCode)) devTier = 'high';
+      else if (MID_HDI.has(countryCode)) devTier = 'mid';
+      else devTier = 'low'; // fallback for South Asia, Sub-Saharan Africa etc.
+
+      // ── Base compliance and Gini by development tier ──
+      // Then scaled ±10 by Nominatim importance (more mapped = slightly higher infra)
+      const impScale = (importance - 0.3) * 25; // maps 0.3–0.9 → roughly -7.5 to +15
+
+      let baseCompMap: Record<keyof typeof POI_CONFIG, number>;
+      let baseGiniMap: Record<keyof typeof POI_CONFIG, number>;
+
+      if (devTier === 'high') {
+        const b = Math.max(55, Math.min(92, 70 + impScale));
+        const g = Math.max(0.22, Math.min(0.45, 0.38 - impScale * 0.004));
+        baseCompMap = { schools: b, healthcare: b + 10, fire: b + 5, ngo: b - 12, epidemic: b - 8, warehouse: b + 3 };
+        baseGiniMap = { schools: g, healthcare: g - 0.04, fire: g - 0.02, ngo: g + 0.06, epidemic: g + 0.04, warehouse: g - 0.01 };
+      } else if (devTier === 'mid') {
+        const b = Math.max(28, Math.min(68, 45 + impScale));
+        const g = Math.max(0.38, Math.min(0.72, 0.58 - impScale * 0.004));
+        baseCompMap = { schools: b, healthcare: b + 8, fire: b + 3, ngo: b - 14, epidemic: b - 10, warehouse: b + 4 };
+        baseGiniMap = { schools: g, healthcare: g - 0.05, fire: g - 0.03, ngo: g + 0.08, epidemic: g + 0.05, warehouse: g - 0.02 };
+      } else {
+        const b = Math.max(8, Math.min(40, 22 + impScale));
+        const g = Math.max(0.60, Math.min(0.94, 0.78 - impScale * 0.003));
+        baseCompMap = { schools: b, healthcare: b + 5, fire: b + 2, ngo: b - 10, epidemic: b - 7, warehouse: b + 2 };
+        baseGiniMap = { schools: g, healthcare: g - 0.04, fire: g - 0.02, ngo: g + 0.07, epidemic: g + 0.05, warehouse: g - 0.01 };
+      }
+
+      const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+      const roundTo = (v: number, dp: number) => Math.round(v * 10 ** dp) / 10 ** dp;
+
+      const baselines = {
+        schools:    { compliance: roundTo(clamp(baseCompMap.schools,    2, 99), 1), gini: roundTo(clamp(baseGiniMap.schools,    0.08, 0.97), 3) },
+        healthcare: { compliance: roundTo(clamp(baseCompMap.healthcare, 2, 99), 1), gini: roundTo(clamp(baseGiniMap.healthcare, 0.08, 0.97), 3) },
+        fire:       { compliance: roundTo(clamp(baseCompMap.fire,       2, 99), 1), gini: roundTo(clamp(baseGiniMap.fire,       0.08, 0.97), 3) },
+        ngo:        { compliance: roundTo(clamp(baseCompMap.ngo,        2, 99), 1), gini: roundTo(clamp(baseGiniMap.ngo,        0.08, 0.97), 3) },
+        epidemic:   { compliance: roundTo(clamp(baseCompMap.epidemic,   2, 99), 1), gini: roundTo(clamp(baseGiniMap.epidemic,   0.08, 0.97), 3) },
+        warehouse:  { compliance: roundTo(clamp(baseCompMap.warehouse,  2, 99), 1), gini: roundTo(clamp(baseGiniMap.warehouse,  0.08, 0.97), 3) },
+      };
+
+      const problemDesc =
+        devTier === 'high'
+          ? `Urban sprawl and equity gaps in peripheral districts`
+          : devTier === 'mid'
+          ? `Rapid urbanisation outpacing infrastructure delivery`
+          : `Informal settlement growth uncoupled from public services`;
+
+      const population = first.address?.city || first.address?.town || 'Unknown';
+      const zoomLevel = importance > 0.7 ? 11 : importance > 0.45 ? 12 : 13;
+
       const newCity = {
         label: `${name} 🌐`,
         center: [parseFloat(first.lat), parseFloat(first.lon)] as [number, number],
-        zoom: 12,
-        population: 'Unknown',
-        problem: `Custom searched region mapping in CityOS`,
-        baseCompliance: 40.0,
-        baseGini: 0.50,
-        baselines: {
-          schools: { compliance: 40.0, gini: 0.50 },
-          healthcare: { compliance: 40.0, gini: 0.50 },
-          fire: { compliance: 40.0, gini: 0.50 },
-          ngo: { compliance: 40.0, gini: 0.50 },
-          epidemic: { compliance: 40.0, gini: 0.50 },
-          warehouse: { compliance: 40.0, gini: 0.50 }
-        }
+        zoom: zoomLevel,
+        population,
+        problem: problemDesc,
+        baseCompliance: baselines.schools.compliance,
+        baseGini: baselines.schools.gini,
+        baselines,
       };
 
-      const updatedList = {
-        ...citiesList,
-        [key]: newCity
-      };
+      const updatedList = { ...citiesList, [key]: newCity };
       setCitiesList(updatedList);
       setSelectedCity(key);
       setSearchQuery('');
       resetSimulation(key, updatedList);
     } catch (err) {
       console.error(err);
-      setSearchError('Search service error');
+      setSearchError('Search service error — check your connection.');
     } finally {
       setIsSearching(false);
     }
