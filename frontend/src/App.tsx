@@ -598,108 +598,181 @@ export default function App() {
   const exportToPDF = () => {
     try {
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageWidth  = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const simMode = poiMode === 'schools' ? 'Education' : poiMode === 'healthcare' ? 'Healthcare' : poiMode === 'fire' ? 'Emergency Services' : poiMode === 'ngo' ? 'NGO Aid Operations' : poiMode === 'epidemic' ? 'Public Health Emergency' : 'Quick Commerce Logistics';
+
+      // ── Dynamic labels pulled directly from state ──
+      const cityLabel    = activeCity.label.replace(/[\u{1F1E0}-\u{1F1FF}\u{1F300}-\u{1FFFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]+/gu, '').trim();
+      const cityPop      = activeCity.population;
+      const cityProblem  = activeCity.problem;
+      const modeLabel    = activeModeConfig.useCaseBadge.replace(/[\u{1F1E0}-\u{1F1FF}\u{1F300}-\u{1FFFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]+/gu, '').trim();
+      const facilityType = activeModeConfig.facilities;
+      const complianceLabel = activeModeConfig.compliance;
+      const servedLabel  = activeModeConfig.studentsServed;
+      const capLabel     = activeModeConfig.capacityLabel;
+      const roleLabel    = activeModeConfig.roleLabel;
+      const budgetUtilPct = metrics.totalSpent > 0 ? ((metrics.totalSpent / budgetCr) * 100).toFixed(1) : '0.0';
+      const giniReduction = metrics.baselineGini > 0 && metrics.gini > 0
+        ? ((metrics.baselineGini - metrics.gini) / metrics.baselineGini * 100).toFixed(1)
+        : '0.0';
+      const complianceDelta = (metrics.compliance - (activeCity.baselines[poiMode]?.compliance || activeCity.baseCompliance)).toFixed(1);
+      const facilitiesPlaced = proposedSchools.length;
 
       // ==========================================
-      // PAGE 1: COVER
+      // PAGE 1 — COVER
       // ==========================================
       pdf.setFillColor(15, 23, 42);
       pdf.rect(0, 0, pageWidth, pageHeight, 'F');
 
+      // Logo
       pdf.setTextColor(56, 189, 248);
-      pdf.setFontSize(28);
+      pdf.setFontSize(30);
       pdf.setFont('helvetica', 'bold');
-      pdf.text('CityOS', 20, 55);
+      pdf.text('CityOS', 20, 52);
 
+      // Subtitle — dynamic mode
       pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(16);
+      pdf.setFontSize(14);
       pdf.setFont('helvetica', 'normal');
-      pdf.text('Infrastructure Equity & RTE Compliance Report', 20, 65);
+      pdf.text(`${modeLabel} — Infrastructure Equity Report`, 20, 63);
 
+      // Separator
       pdf.setDrawColor(16, 185, 129);
       pdf.setLineWidth(0.8);
-      pdf.line(20, 74, pageWidth - 20, 74);
+      pdf.line(20, 72, pageWidth - 20, 72);
 
+      // Meta rows — fully dynamic
       const metaRows: [string, string][] = [
-        ['PREPARED FOR', 'Bruhat Bengaluru Mahanagara Palike (BBMP)'],
-        ['DATE', new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })],
-        ['COMPUTE ENGINE', 'AMD ROCm Accelerated Graph Analytics'],
-        ['SIMULATION MODE', simMode],
-        ['CITY', activeCity.label],
-        ['BUDGET CAP', `\u20B9${budgetCr} Crore`],
+        ['CITY / REGION',     cityLabel],
+        ['POPULATION',        cityPop],
+        ['SIMULATION FOCUS',  modeLabel],
+        ['BUDGET CAP',        `\u20B9${budgetCr} Crore`],
+        ['MAX FACILITIES',    `${maxFacilities} ${facilityType}`],
+        [`${capLabel.toUpperCase()}`, `${studentsPerFacility.toLocaleString()} ${roleLabel}s`],
+        ['DATE',              new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })],
+        ['COMPUTE ENGINE',    'AMD ROCm Accelerated Graph Analytics'],
       ];
-      let my = 90;
-      metaRows.forEach(([label, value]) => {
+      let my = 86;
+      for (const [label, value] of metaRows) {
         pdf.setTextColor(148, 163, 184);
-        pdf.setFontSize(9);
+        pdf.setFontSize(8.5);
         pdf.setFont('helvetica', 'bold');
         pdf.text(label + ':', 20, my);
         pdf.setTextColor(255, 255, 255);
         pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(11);
-        pdf.text(value, 20, my + 6);
-        my += 16;
-      });
+        pdf.setFontSize(10.5);
+        pdf.text(value, 20, my + 5.5);
+        my += 14;
+      }
 
+      // City problem statement box
+      pdf.setFillColor(30, 41, 59);
+      pdf.setDrawColor(56, 189, 248);
+      pdf.setLineWidth(0.5);
+      pdf.roundedRect(20, my + 2, pageWidth - 40, 20, 2, 2, 'FD');
+      pdf.setTextColor(148, 163, 184);
+      pdf.setFontSize(7.5);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('URBAN CHALLENGE', 25, my + 9);
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      const problemLines = pdf.splitTextToSize(cityProblem, pageWidth - 52);
+      pdf.text(problemLines, 25, my + 15);
+
+      // Confidential watermark
       pdf.setTextColor(239, 68, 68);
       pdf.setFontSize(8);
       pdf.setFont('helvetica', 'bold');
       pdf.text('CONFIDENTIAL \u2014 DRAFT POLICY DOCUMENT', pageWidth - 20, pageHeight - 10, { align: 'right' });
 
       // ==========================================
-      // PAGE 2: EXECUTIVE SUMMARY
+      // PAGE 2 — EXECUTIVE SUMMARY
       // ==========================================
       pdf.addPage();
       pdf.setFillColor(255, 255, 255);
       pdf.rect(0, 0, pageWidth, pageHeight, 'F');
 
+      // Header bar
       pdf.setFillColor(15, 23, 42);
       pdf.rect(0, 0, pageWidth, 22, 'F');
       pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(13);
+      pdf.setFontSize(12);
       pdf.setFont('helvetica', 'bold');
       pdf.text('EXECUTIVE SUMMARY', 15, 14);
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(9);
+      pdf.setFontSize(8.5);
       pdf.setTextColor(148, 163, 184);
-      pdf.text(`${activeCity.label} | ${simMode} | ${new Date().toLocaleDateString()}`, pageWidth - 15, 14, { align: 'right' });
+      pdf.text(
+        `${cityLabel}  |  ${modeLabel}  |  ${new Date().toLocaleDateString()}`,
+        pageWidth - 15, 14, { align: 'right' }
+      );
 
-      // 2x2 KPI grid
-      const kpiY = 30;
-      const kpiW = 85;
-      const kpiH = 30;
-      const col2 = 15 + kpiW + 10;
+      // ── 2×3 KPI grid (6 cards) ──
+      const kpiY  = 28;
+      const kpiW  = 56;
+      const kpiH  = 28;
+      const kpiGap = 5;
+      const col1 = 15, col2 = col1 + kpiW + kpiGap, col3 = col2 + kpiW + kpiGap;
 
       const drawKPI = (x: number, y: number, label: string, value: string, r: number, g: number, b: number) => {
         pdf.setFillColor(248, 250, 252);
         pdf.setDrawColor(226, 232, 240);
         pdf.roundedRect(x, y, kpiW, kpiH, 2, 2, 'FD');
         pdf.setTextColor(100, 116, 139);
-        pdf.setFontSize(7.5);
+        pdf.setFontSize(7);
         pdf.setFont('helvetica', 'bold');
-        pdf.text(label.toUpperCase(), x + 4, y + 8);
+        pdf.text(label.toUpperCase(), x + 3, y + 7);
         pdf.setTextColor(r, g, b);
-        pdf.setFontSize(18);
+        pdf.setFontSize(15);
         pdf.setFont('helvetica', 'bold');
-        pdf.text(value, x + 4, y + 22);
+        pdf.text(value, x + 3, y + 20);
       };
 
       const giniStr = metrics.baselineGini > 0
-        ? `${metrics.baselineGini.toFixed(3)} > ${metrics.gini > 0 ? metrics.gini.toFixed(3) : '--'}`
+        ? `${metrics.baselineGini.toFixed(3)} \u2192 ${metrics.gini > 0 ? metrics.gini.toFixed(3) : '--'}`
         : '--';
 
-      drawKPI(15,   kpiY,          activeModeConfig.compliance,    `${metrics.compliance.toFixed(1)}%`,                        16,  185, 129);
-      drawKPI(col2, kpiY,          activeModeConfig.studentsServed, metrics.studentsServed.toLocaleString(),                    14,  165, 233);
-      drawKPI(15,   kpiY+kpiH+6,  'Inequality (Gini)',             giniStr,                                                    239, 68,  68 );
-      drawKPI(col2, kpiY+kpiH+6,  'Budget Utilised',               `\u20B9${metrics.totalSpent.toFixed(1)}Cr / \u20B9${budgetCr}Cr`, 99, 102, 241);
+      drawKPI(col1, kpiY,           complianceLabel,        `${metrics.compliance.toFixed(1)}%`,                   16, 185, 129);
+      drawKPI(col2, kpiY,           servedLabel,             metrics.studentsServed.toLocaleString(),               14, 165, 233);
+      drawKPI(col3, kpiY,           'Budget Utilised',       `\u20B9${metrics.totalSpent.toFixed(1)}Cr`,            99, 102, 241);
+      drawKPI(col1, kpiY+kpiH+kpiGap, 'Inequality (Gini)',  giniStr,                                              239,  68,  68);
+      drawKPI(col2, kpiY+kpiH+kpiGap, 'Facilities Placed',  `${facilitiesPlaced} / ${maxFacilities}`,             251, 191,  36);
+      drawKPI(col3, kpiY+kpiH+kpiGap, 'Budget Used %',      `${budgetUtilPct}%`,                                  168,  85, 247);
 
-      let yPos = kpiY + (kpiH + 6) * 2 + 14;
+      let yPos = kpiY + (kpiH + kpiGap) * 2 + 12;
 
-      // Top Benefiting Wards table
+      // ── Simulation Parameters summary row ──
+      pdf.setFillColor(241, 245, 249);
+      pdf.setDrawColor(203, 213, 225);
+      pdf.roundedRect(15, yPos, 180, 10, 1.5, 1.5, 'FD');
+      pdf.setTextColor(51, 65, 85);
+      pdf.setFontSize(7.5);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Budget Cap: \u20B9${budgetCr}Cr`, 20, yPos + 7);
+      pdf.text(`Max Facilities: ${maxFacilities}`, 75, yPos + 7);
+      pdf.text(`${capLabel}: ${studentsPerFacility.toLocaleString()}`, 120, yPos + 7);
+      pdf.text(`Gini Delta: \u2212${giniReduction}%`, 170, yPos + 7);
+      yPos += 16;
+
+      // ── Compliance change callout ──
+      const compDeltaNum = parseFloat(complianceDelta);
+      pdf.setFillColor(compDeltaNum >= 0 ? 240 : 255, compDeltaNum >= 0 ? 253 : 242, compDeltaNum >= 0 ? 250 : 242);
+      pdf.setDrawColor(compDeltaNum >= 0 ? 16 : 239, compDeltaNum >= 0 ? 185 : 68, compDeltaNum >= 0 ? 129 : 68);
+      pdf.setLineWidth(0.4);
+      pdf.roundedRect(15, yPos, 180, 9, 1.5, 1.5, 'FD');
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(11);
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(compDeltaNum >= 0 ? 6 : 153, compDeltaNum >= 0 ? 95 : 27, compDeltaNum >= 0 ? 70 : 27);
+      pdf.text(
+        `${complianceLabel}: ${(activeCity.baselines[poiMode]?.compliance || activeCity.baseCompliance).toFixed(1)}% (baseline)  \u2192  ${metrics.compliance.toFixed(1)}%  (${compDeltaNum >= 0 ? '+' : ''}${complianceDelta}% improvement)`,
+        20, yPos + 6.2
+      );
+      yPos += 15;
+
+      // ── Top Benefiting Wards table ──
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(10.5);
       pdf.setTextColor(15, 23, 42);
       pdf.text('Top Benefiting Wards', 15, yPos);
       yPos += 5;
@@ -707,39 +780,42 @@ export default function App() {
       pdf.setFillColor(15, 23, 42);
       pdf.rect(15, yPos, 180, 7, 'F');
       pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(8);
+      pdf.setFontSize(7.5);
       pdf.setFont('helvetica', 'bold');
-      pdf.text('RANK', 19, yPos + 5);
-      pdf.text('WARD / ZONE', 38, yPos + 5);
-      pdf.text('COVERAGE DELTA', 148, yPos + 5);
+      pdf.text('RANK', 19, yPos + 4.8);
+      pdf.text('WARD / ZONE', 38, yPos + 4.8);
+      pdf.text('FACILITY TYPE', 120, yPos + 4.8);
+      pdf.text('COVERAGE DELTA', 162, yPos + 4.8);
       yPos += 7;
 
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(9);
+      pdf.setFontSize(8.5);
       if (metrics.leaderboard && metrics.leaderboard.length > 0) {
         metrics.leaderboard.forEach((item, idx) => {
           const shade = idx % 2 === 0 ? 248 : 255;
           pdf.setFillColor(shade, shade, shade);
           pdf.rect(15, yPos, 180, 7, 'F');
           pdf.setTextColor(30, 41, 59);
-          pdf.text(`${idx + 1}`, 19, yPos + 5);
-          pdf.text(item.ward, 38, yPos + 5);
+          pdf.text(`${idx + 1}`, 19, yPos + 4.8);
+          pdf.text(item.ward, 38, yPos + 4.8);
+          pdf.setTextColor(100, 116, 139);
+          pdf.text(activeModeConfig.typeLabel.replace(/[\u{1F1E0}-\u{1F1FF}\u{1F300}-\u{1FFFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]+/gu, '').trim(), 120, yPos + 4.8);
           pdf.setTextColor(16, 185, 129);
-          pdf.text(`+${item.impact}%`, 148, yPos + 5);
+          pdf.text(`+${item.impact}%`, 162, yPos + 4.8);
           yPos += 7;
         });
       } else {
         pdf.setTextColor(100, 116, 139);
-        pdf.text('No placements recorded \u2014 run Auto-Solve or place pins on the map.', 19, yPos + 5);
+        pdf.text('No placements recorded \u2014 run Auto-Solve or place pins on the map.', 19, yPos + 4.8);
         yPos += 7;
       }
       yPos += 8;
 
-      // AMD ROCm Compute Advantage
+      // ── AMD ROCm Compute Advantage ──
       pdf.setFillColor(4, 47, 46);
       pdf.rect(15, yPos, 180, 6, 'F');
       pdf.setTextColor(52, 211, 153);
-      pdf.setFontSize(9);
+      pdf.setFontSize(8.5);
       pdf.setFont('helvetica', 'bold');
       pdf.text('AMD ROCm COMPUTE ADVANTAGE', 19, yPos + 4.2);
       yPos += 6;
@@ -747,7 +823,7 @@ export default function App() {
       pdf.setFillColor(240, 253, 250);
       pdf.rect(15, yPos, 180, 24, 'F');
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(9);
+      pdf.setFontSize(8.5);
       pdf.setTextColor(15, 23, 42);
       pdf.text('CPU computation time:   ETA 14 Hours  (NetworkX single-thread Dijkstra)', 19, yPos + 8);
       pdf.text('GPU computation time:   12.4 seconds  (AMD ROCm cuGraph SSSP)', 19, yPos + 15);
@@ -756,26 +832,32 @@ export default function App() {
       pdf.text('Speedup achieved:   4,064x faster \u2014 enabling real-time policy iteration', 19, yPos + 22);
       yPos += 30;
 
-      // Recommended Interventions
+      // ── Recommended Interventions — fully dynamic ──
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(11);
+      pdf.setFontSize(10.5);
       pdf.setTextColor(15, 23, 42);
       pdf.text('Recommended Interventions', 15, yPos);
       yPos += 7;
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(9);
+      pdf.setFontSize(8.5);
       pdf.setTextColor(71, 85, 105);
 
       const interventions = metrics.compliance >= 90
         ? [
-            '\u2022 Scale placement across high-density settlement borders immediately.',
-            `\u2022 Calibrate network allocation models to match the ${studentsPerFacility.toLocaleString()} capacity ceiling.`,
-            '\u2022 Transition computed logistics coordinates to BBMP field logistics teams.'
+            `\u2022 Scale ${facilityType.toLowerCase()} across high-density settlement borders in ${cityLabel}.`,
+            `\u2022 Calibrate network allocation to the ${studentsPerFacility.toLocaleString()} ${capLabel.toLowerCase()} ceiling.`,
+            `\u2022 Coordinate field deployment with local municipal authority for ${cityLabel}.`
+          ]
+        : metrics.compliance >= 60
+        ? [
+            `\u2022 Expand budget beyond \u20B9${budgetCr}Cr to address remaining ${(100 - metrics.compliance).toFixed(0)}% coverage gap.`,
+            `\u2022 Prioritise placement in wards with Gini > ${metrics.gini.toFixed(2)} to maximise equity impact.`,
+            `\u2022 Re-run AMD ROCm-accelerated solver for optimal ${facilityType.toLowerCase()} multi-site deployment.`
           ]
         : [
-            '\u2022 Expand budget allocation for eastern and peripheral settlement clusters.',
-            '\u2022 Prioritise spatial access mapping to locate coverage deadzones.',
-            '\u2022 Re-run AMD ROCm-accelerated solver for optimal multi-site deployment.'
+            `\u2022 Critical coverage gap detected — only ${metrics.compliance.toFixed(1)}% of ${cityLabel} served.`,
+            `\u2022 Increase facility cap beyond ${maxFacilities} and budget beyond \u20B9${budgetCr}Cr immediately.`,
+            `\u2022 Leverage AMD ROCm solver to rapidly identify highest-impact ${facilityType.toLowerCase()} sites.`
           ];
 
       interventions.forEach(line => {
@@ -783,19 +865,19 @@ export default function App() {
         yPos += 7;
       });
 
-      // Footer
+      // ── Footer ──
       pdf.setDrawColor(226, 232, 240);
       pdf.setLineWidth(0.4);
       pdf.line(15, pageHeight - 14, pageWidth - 15, pageHeight - 14);
       pdf.setTextColor(148, 163, 184);
-      pdf.setFontSize(7.5);
+      pdf.setFontSize(7);
       pdf.setFont('helvetica', 'normal');
       pdf.text(
-        'Generated by EduGrid Spatial Engine  |  Powered by AMD ROCm  |  Data: OpenStreetMap + Sentinel-2',
+        `Generated by CityOS Spatial Engine  |  City: ${cityLabel}  |  Mode: ${modeLabel}  |  Powered by AMD ROCm`,
         pageWidth / 2, pageHeight - 8, { align: 'center' }
       );
 
-      pdf.save(`EduGrid_${selectedCity}_PolicyBrief_${new Date().toISOString().slice(0, 10)}.pdf`);
+      pdf.save(`CityOS_${cityLabel.replace(/\s+/g, '_')}_${poiMode}_${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (error) {
       console.error('Error generating PDF:', error);
     }
