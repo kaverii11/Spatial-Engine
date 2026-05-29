@@ -1,4 +1,4 @@
-# 🛰️ EduGrid City OS Spatial Engine
+# 🛰️City OS Spatial Engine
 
 An advanced spatial analytics engine and dashboard focused on mapping, analyzing, and optimizing resource accessibility in dense informal urban environments. 
 
