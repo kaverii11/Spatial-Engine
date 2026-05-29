@@ -13,10 +13,22 @@ import uvicorn
 # ---------------------------------------------------------
 # 1. Load State and Datasets at Startup
 # ---------------------------------------------------------
-DATA_DIR = "/Users/kaverisharma/Desktop/amd/Data"
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data")
 GRAPH_PATH = os.path.join(DATA_DIR, "bengaluru_walk.graphml.xml")
+GRAPH_GZ_PATH = GRAPH_PATH + ".gz"
 SCHOOLS_PATH = os.path.join(DATA_DIR, "bengaluru_schools_corrected.geojson")
 INFORMAL_PATH = os.path.join(DATA_DIR, "informal_samples.geojson")
+
+# Auto-decompress if .xml is missing but .xml.gz is present
+if not os.path.exists(GRAPH_PATH) and os.path.exists(GRAPH_GZ_PATH):
+    import gzip
+    import shutil
+    print(" [Engine] Bengaluru walk XML graph file not found, but compressed .gz file exists.")
+    print(" [Engine] Extracting graph (this only happens once)...")
+    with gzip.open(GRAPH_GZ_PATH, 'rb') as f_in:
+        with open(GRAPH_PATH, 'wb') as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    print(" [Engine] Extraction complete!")
 
 print(" [Engine] Loading street network graph (this may take a moment)...")
 G = ox.load_graphml(GRAPH_PATH)
