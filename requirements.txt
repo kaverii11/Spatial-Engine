@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+networkx
+osmnx
+geopandas
+numpy
