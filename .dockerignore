@@ -1,0 +1,36 @@
+# Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node / Frontend
+node_modules/
+frontend/
+
+# Jupyter
+.ipynb_checkpoints/
+Spatial_Apartheid_Phase1 (1).ipynb
+
+# Large uncompressed data files (we only want .gz)
+Data/*.xml
+Data/*.bak
+
+# Git
+.git/
+.gitignore
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# PDFs
+*.pdf
