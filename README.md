@@ -66,7 +66,7 @@ An advanced settings card provides real-time controls for:
 The completely rewritten Auto-Solve engine maps optimal placements based on local constraints:
 * **Targeted Intervention**: Places facilities strategically near the lowest-compliance wards first (e.g. Yelahanka, Hebbal, Whitefield) before expanding to mid-compliance areas.
 * **Coordinate-Offset Math**: Dynamically offsets placement vectors to match whichever city is currently active.
-* **Collapsible Solver Progress**: Migrated the heavy benchmarking card into the Auto-Solve button. A premium progress panel expands during the 2-second compute, showcasing standard CPU solver execution vs. ultra-fast **AMD ROCm GPU** speedups (4,064x faster).
+* **Collapsible Solver Progress**: Migrated the heavy benchmarking card into the Auto-Solve button. A premium progress panel expands during the ~2-second compute, visualizing a simulated CPU-vs-GPU comparison for the hackathon demo --- the GPU side is a mocked number for UI purposes, not a real benchmark; AMD ROCm was never actually integrated.
 
 ### 🏷️ Sticky Leaflet Hover Tooltips
 All map elements feature rich, interactive `<Tooltip>` bindings:
