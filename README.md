@@ -1,5 +1,7 @@
 # City OS Spatial Engine
 
+**Live demo: https://kaverii11.github.io/Spatial-Engine/** (runs entirely in the browser, so the first load downloads a 6 MB street graph)
+
 How far do people in Bengaluru's informal settlements walk to a government school, a hospital or a fire station? And where would new facilities help most?
 
 The engine computes **real walking distances along the street network**, not straight lines. It uses OpenStreetMap's Bengaluru walk graph (184,909 intersections) and runs multi-source Dijkstra from every facility to every settlement point. The interactive map lets you click to propose a new site, or ask for the best N sites, and recomputes everything live in the browser.
