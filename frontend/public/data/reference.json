@@ -1,0 +1,72 @@
+{
+ "schools": {
+  "informal": {
+   "reachable": 358,
+   "avg_km": 1.4251,
+   "compliance_pct": 39.6648,
+   "gini": 0.342
+  },
+  "formal": {
+   "reachable": 642,
+   "avg_km": 1.6025,
+   "compliance_pct": 32.0872,
+   "gini": 0.342
+  },
+  "with_extra": {
+   "reachable": 358,
+   "avg_km": 1.4112,
+   "compliance_pct": 40.7821,
+   "gini": 0.346
+  },
+  "py_seconds": 6.63
+ },
+ "healthcare": {
+  "informal": {
+   "reachable": 358,
+   "avg_km": 0.9571,
+   "compliance_pct": 61.7318,
+   "gini": 0.413
+  },
+  "formal": {
+   "reachable": 642,
+   "avg_km": 1.2324,
+   "compliance_pct": 53.4268,
+   "gini": 0.423
+  },
+  "with_extra": {
+   "reachable": 358,
+   "avg_km": 0.9541,
+   "compliance_pct": 62.0112,
+   "gini": 0.415
+  },
+  "py_seconds": 11.52
+ },
+ "fire": {
+  "informal": {
+   "reachable": 358,
+   "avg_km": 4.0281,
+   "compliance_pct": 3.9106,
+   "gini": 0.275
+  },
+  "formal": {
+   "reachable": 642,
+   "avg_km": 4.3968,
+   "compliance_pct": 3.4268,
+   "gini": 0.274
+  },
+  "with_extra": {
+   "reachable": 358,
+   "avg_km": 3.624,
+   "compliance_pct": 5.5866,
+   "gini": 0.282
+  },
+  "py_seconds": 13.91
+ },
+ "extra_nodes": [
+  115583,
+  126509,
+  174717,
+  106931,
+  165902
+ ]
+}

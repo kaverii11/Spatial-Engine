@@ -1,116 +1,74 @@
-# 🛰️City OS Spatial Engine
+# City OS Spatial Engine
 
-An advanced spatial analytics engine and dashboard focused on mapping, analyzing, and optimizing resource accessibility in dense informal urban environments. 
+How far do people in Bengaluru's informal settlements walk to a government school, a hospital or a fire station? And where would new facilities help most?
 
-Built around modern spatial engineering heuristics, EduGrid evaluates whether critical infrastructure (schools, clinics, aid points, dark stores) snaps dynamically to high-density demographic nodes and optimizes placements to resolve spatial disparities.
+The engine computes **real walking distances along the street network**, not straight lines. It uses OpenStreetMap's Bengaluru walk graph (184,909 intersections) and runs multi-source Dijkstra from every facility to every settlement point. The interactive map lets you click to propose a new site, or ask for the best N sites, and recomputes everything live in the browser.
 
----
+## What the app does
 
-## 🚀 Key Features & Platform Upgrades
+- **Three facility layers:** 257 government schools, 1,076 hospitals and 20 fire stations from OSM.
+- **Settlement points:** 358 informal and 642 planned-area sample points. They come from a Random Forest classifier on Sentinel-2 imagery (bands B4/B8/B11 + NDVI + NDBI, Jan–Feb 2024), trained on 509 mapped slum polygons.
+- **Metrics:** share of points within a 1 km walk (the RTE norm for primary schools), average and median walk, and the Gini coefficient of walking distances. Informal and planned areas are shown side by side.
+- **Click to propose a site:** it snaps to the nearest street node, and every distance is recomputed (about 50–250 ms for the full graph in the browser).
+- **Suggest best N:** greedy max-coverage. Each step picks the settlement location that brings the most still-uncovered settlement points within 1 km.
 
-### 🗺️ Multi-City Selection Engine
-EduGrid supports real-time, interactive switching across 5 major global metropolitan areas:
-* **Bengaluru 🇮🇳** (Base compliance: 32.4%, Gini: 0.67) - Rapid informal growth outstripping supply.
-* **Delhi 🇮🇳** (Base compliance: 28.1%, Gini: 0.74) - Highest density informal settlements.
-* **Mumbai 🇮🇳** (Base compliance: 41.2%, Gini: 0.61) - Dharavi cluster isolating millions from public grids.
-* **Varanasi 🇮🇳** (Base compliance: 19.8%, Gini: 0.81) - Dense, historic old-city lane penalties.
-* **Nairobi 🌍** (Base compliance: 15.3%, Gini: 0.88) - Kibera slum accessibility gap modeling.
-* *Features smooth map transition animations powered by custom Leaflet map controllers and real-time generation of demographic settlement nodes centered on the active city.*
+### Baseline results (informal vs planned points within 1 km walk)
 
-### 🔍 Global Search & Dynamic Heuristic Estimation (Search Any City)
-Users can search and dynamically map **any city in the world** using the geocoding input in the sidebar. This queries the public **OpenStreetMap Nominatim Geocoding API** at runtime to fetch the exact latitude, longitude, and metadata. 
+| Facility | Informal | Planned | Avg walk (informal) |
+| :-- | --: | --: | --: |
+| Govt schools | 39.7% | 32.1% | 1.43 km |
+| Hospitals | 61.7% | 53.4% | 0.96 km |
+| Fire stations | 3.9% | 3.4% | 4.03 km |
 
-To ensure the simulation remains realistic outside the 5 static baseline cities, the engine runs a **Data-Driven Heuristic Estimation Model** to calculate custom baselines for all 6 POI modes based on the city's geographical context:
+On this sample, informal points are *not* farther from facilities on average than planned-area points. Fire coverage is low partly because OSM lists only 20 fire stations in the city.
 
-#### 1. Country-Level HDI Classification
-The engine extracts the geocoded `country_code` and performs a lookup to categorize the region into one of three Human Development Index (HDI) tiers:
-* **High HDI (🟢)** (US, Western Europe, Japan, S. Korea, Australia, Singapore, etc.): Standard primary infrastructure is highly developed, leading to elevated starting compliance and lower inequality (lower Gini).
-* **Mid HDI (🟡)** (China, Brazil, South Africa, Turkey, Mexico, Indonesia, Colombia, etc.): Moderate baseline coverage with noticeable equity gaps in outlying zones.
-* **Low HDI (🔴)** (India, Nigeria, Kenya, Ethiopia, etc.): High densities of informal growth with wider infrastructure deserts.
+## Architecture
 
-#### 2. Nominatim Importance Scaling
-OpenStreetMap's log-scaled `importance` value (0.0 to 1.0) is integrated to scale the scores. High importance corresponds to highly populated and mapped urban centers, which scales compliance upwards and Gini downwards (accounting for urban aggregation efficiency):
-$$\text{Scale Factor} = (\text{OSM Importance} - 0.3) \times 25$$
-
-#### 3. Mode-Specific Access Offsets
-Starting compliance and Gini coefficients are dynamically offset per POI mode to mirror real-world policy distribution:
-* **Healthcare Access** is offset higher (+5% to +10%) representing universal health service grids.
-* **Schools & Logistics** map closely to the baseline average.
-* **NGO Reach & Epidemic Gaps** are offset lower (-7% to -14%) to account for the severe difficulty of managing last-mile crises in informal spaces.
-
-#### Summary of Heuristic Baselines:
-| Development Tier (HDI) | Baseline Compliance Range | Gini Index Range | Real-World Behaviors |
-| :--- | :--- | :--- | :--- |
-| **High HDI (🟢)** | 55% - 92% | 0.220 - 0.450 | High base accessibility. Planning focused on marginal edge groups. |
-| **Mid HDI (🟡)** | 28% - 68% | 0.380 - 0.720 | Growing network coverage with localized access gaps. |
-| **Low HDI (🔴)** | 8% - 40% | 0.600 - 0.940 | Severe infrastructural deserts. High inequality (Gini) in slum boundaries. |
-
----
-
-### 💼 B2B SaaS & Government Use-Case Expansion
-The engine features a dynamic `POI_CONFIG` dictionary to drive copywriting, metrics, and tooltips across **6 distinct focus modes**:
-1. 🏫 **Schools (RTE Education)**: Maps government primary infrastructure and RTE walking distance benchmarks.
-2. 🏥 **Healthcare (WHO Access)**: Models hospital access grids and snapped clinical networks.
-3. 🚒 **Fire Stations (Safety)**: Assesses response radii and fire gap limits.
-4. 🤝 **NGO Aid (Last-mile Reach)**: Models charity hubs, distribution points, and last-mile beneficiary accessibility.
-5. 🦠 **Epidemic (Public Health Emergency)**: Evaluates distance to equipped treatment centers during critical outbreaks.
-6. 📦 **Quick Commerce (Logistics Coverage)**: A B2B SaaS mode mapping dark stores, delivery dead zones, and 30-min household serviceability limits.
-
-### ⚙️ User-Controlled "Simulation Parameters"
-An advanced settings card provides real-time controls for:
-* **Max Facilities to Place**: Enforces a hard cap (1–50) directly on map click triggers.
-* **Capacity per Facility**: Configures facility demographic ceilings (100–5000).
-* **Budget Cap Slider**: Controls absolute capital constraints (₹10Cr - ₹150Cr) dynamically.
-
-### ⚡ Strategic Auto-Solve (Genetic Heuristics)
-The completely rewritten Auto-Solve engine maps optimal placements based on local constraints:
-* **Targeted Intervention**: Places facilities strategically near the lowest-compliance wards first (e.g. Yelahanka, Hebbal, Whitefield) before expanding to mid-compliance areas.
-* **Coordinate-Offset Math**: Dynamically offsets placement vectors to match whichever city is currently active.
-* **Collapsible Solver Progress**: Migrated the heavy benchmarking card into the Auto-Solve button. A premium progress panel expands during the ~2-second compute, visualizing a simulated CPU-vs-GPU comparison for the hackathon demo --- the GPU side is a mocked number for UI purposes, not a real benchmark; AMD ROCm was never actually integrated.
-
-### 🏷️ Sticky Leaflet Hover Tooltips
-All map elements feature rich, interactive `<Tooltip>` bindings:
-* **Settlement Nodes**: Hovering showcases access status (e.g., *✅ Within 30-min delivery* or *🔴 Delivery Dead Zone*), exact network walking distance (km), and estimated population count.
-* **Proposed Facilities**: Displays POI mode title, custom capacity, coverage boundaries, and estimated land acquisition cost calculated dynamically based on nearest ward administrative boundaries.
-
----
-
-## ⚡ Technical Architecture
-
-### 🔄 Modernized Backend Integration (Happy Path & Fallback)
-* **Real Dijkstra Routing Queries**: Replaced the frontend's mock simulation with a live HTTP pipeline. Placing any new marker on the map triggers a `POST` request to `http://localhost:8000/simulate` transmitting coordinates and the active `poi_type`.
-* **FastAPI Middleware**: Implemented `CORSMiddleware` in `server.py` allowing cross-origin requests (`*`) to facilitate unblocked development and production execution.
-* **Resilient Graceful Fallback**: Implemented a defensive try/catch routing block in `App.tsx` that attempts high-fidelity live backend calculations first. If the server is offline or unreachable, the engine gracefully catches the error and activates a regional mock simulator, preserving UX continuity.
-
----
-
-## 🗂️ Repository Structure
 ```
-├── Data/                         # Processed demographic nodes and regional bounds
-│   ├── informal_samples.geojson
-│   └── bengaluru_schools_corrected.geojson
-├── frontend/                     # Modern interface visualizing spatial equity 
-│   ├── src/
-│   │   ├── App.tsx               # High-performance interactive metrics, tooltips, and parameters
-│   │   └── wardData.ts           # Mapped administrative bounds
-├── server.py                     # FastAPI implementation processing core queries
-└── Spatial_Apartheid_Phase1.ipynb # Step-by-step deployment notebook
+Data/ (OSM graph, GeoJSON)  ──►  scripts/export_web_data.py  ──►  frontend/public/data/
+                                   snaps points with OSMnx           graph.bin  (6 MB CSR adjacency)
+                                   writes NetworkX reference         points.json
+                                                                     reference.json
+frontend/
+  src/engine.ts    Dijkstra (binary heap over typed arrays), bounded Dijkstra, Gini,
+                   grid nearest-node index, greedy max-coverage
+  src/worker.ts    runs the engine in a Web Worker so the map never freezes
+  src/App.tsx      React + Leaflet UI
+server.py          original FastAPI + NetworkX backend (same maths, not needed by the frontend)
 ```
 
-## 🛠️ Installation Guide
+The frontend is fully static, so it can deploy anywhere (Vercel, GitHub Pages) with no backend.
 
-### 1. Backend APIs
-```bash
-pip install fastapi uvicorn networkx osmnx geopandas
-python server.py
-```
+**Correctness check:** `npm run verify` runs the browser engine in Node and compares it with NetworkX on all three layers, for informal points, planned points, and with extra facilities added. Results match the reported precision. Nearest-node snapping matches OSMnx except for 4 of 615 points, which are sub-metre ties.
 
-### 2. Client Layer
+## Running it
+
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev          # http://localhost:5173
+npm run verify       # JS engine vs NetworkX reference
+npm run build        # static site in frontend/dist
 ```
 
----
-*Formulated for modern urban sustainability and logistics optimization.*
+Regenerate the web data (needs `osmnx geopandas networkx scikit-learn`):
+
+```bash
+python3 scripts/export_web_data.py
+```
+
+Original backend (optional):
+
+```bash
+pip install -r requirements.txt
+python server.py     # POST /simulate on :8000
+```
+
+## Limitations
+
+- Settlement points are land-type samples, not population counts.
+- OSM facility data is incomplete, and "hospital" includes private hospitals.
+- Proposed sites are candidate street nodes. The engine does not model land availability, capacity or cost.
+- The analysis covers Bengaluru only, the one city with a downloaded street graph.
+
+`Spatial_Apartheid_Phase1 (1).ipynb` holds the original data pipeline: OSM download, Sentinel-2 classification in Earth Engine, and the first routing run.
